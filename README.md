@@ -52,7 +52,7 @@ Regra de desempate implementada: se a empresa já é cliente, é chamado; se est
 
 ### Agente Qualificador
 
-Recebe o texto acumulado da conversa e devolve um dossiê estruturado. Aplica uma **rubrica de score fixa e auditável** — volume de linhas, senioridade do contato, dor explícita com a operadora atual, prazo declarado — e classifica temperatura por faixa.
+Recebe o texto acumulado da conversa e devolve um dossiê estruturado. Aplica uma **rubrica de score fixa, escrita no prompt** — volume de linhas, senioridade do contato, dor explícita com a operadora atual, prazo declarado — e classifica temperatura por faixa. Nesta versão, quem soma os pontos ainda é o modelo (ver «Decisões técnicas»).
 
 Consulta o RAG para sugerir plano. Grava em `leads`.
 
@@ -78,15 +78,19 @@ Três fluxos soltos exigiriam que o usuário soubesse de antemão com quem falar
 
 O ganho estrutural é outro: cada especialista é uma unidade isolada, com prompt próprio e testável sozinho. Adicionar um quarto agente não exige tocar em nenhum dos três existentes — só registrar mais uma ferramenta no orquestrador.
 
-### Rubrica de score em regra fixa, não a critério do modelo
+### Rubrica de score fixa, escrita no prompt
 
-O score poderia ser deixado a cargo do LLM. Não foi. A rubrica está escrita como soma de pontos com faixas explícitas, porque score de lead precisa ser **reproduzível e defensável** diante do time comercial. Um número que muda entre execuções idênticas não sustenta priorização de carteira.
+O score não é uma impressão livre do modelo: a rubrica está escrita como soma de pontos com faixas explícitas, porque score de lead precisa ser **reproduzível e defensável** diante do time comercial. Um número que muda entre execuções idênticas não sustenta priorização de carteira.
+
+**Limite desta versão:** a rubrica mora no prompt do Qualificador, então quem faz a soma ainda é o modelo. A temperatura baixa (0.2) ajuda na consistência, mas não garante. O passo seguinte é o modelo extrair só os insumos (número de linhas, cargo, dor, prazo) e a soma e a faixa de temperatura saírem de um nó de código ou de uma função no Postgres, onde a regra pode ser testada.
 
 ### Nó único de normalização por agente
 
 Toda saída de LLM que precisa virar registro estruturado passa por um único nó de parsing, com fallback explícito quando o JSON vem malformado.
 
 Qualquer mudança de comportamento do modelo fica contida nesse ponto, sem contaminar o resto do fluxo. É o mesmo princípio de isolar dependência externa em uma camada só.
+
+O fallback de hoje é silencioso demais: um JSON malformado vira lead frio (score 0) no Qualificador e chamado de urgência média com SLA de 24 h no SLA. A saída bruta vai para a descrição, mas ninguém é avisado, e um chamado crítico pode ser rebaixado. Em produção, esses casos iriam para uma pessoa, com alerta.
 
 ### RAG como fonte única de verdade
 
@@ -178,6 +182,8 @@ docs/
 - Sem tratamento de concorrência: dois atendimentos simultâneos do mesmo cliente podem gerar registros duplicados
 - Modelo em tier gratuito tem limite de requisições por minuto que restringe volume simultâneo
 - Sem camada de avaliação automatizada da qualidade das classificações
+- A soma do score é feita pelo modelo a partir da rubrica do prompt, não por código
+- O fallback de parsing não dispara alerta (ver «Nó único de normalização por agente»)
 
 ---
 
